@@ -1,0 +1,24 @@
+# GradeOps dev stack — only PostgreSQL runs in Docker.
+# FastAPI runs locally (uvicorn), Ollama runs natively on the Mac (MPS acceleration).
+#
+# Start:  docker-compose -f docker-compose.dev.yml up -d
+# Stop:   docker-compose -f docker-compose.dev.yml down
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: gradeops
+      POSTGRES_USER: gradeops
+      POSTGRES_PASSWORD: gradeops
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gradeops"]
+      interval: 5s
+      retries: 10
+
+volumes:
+  postgres_data:
