@@ -10,29 +10,179 @@ interface Fields {
   title: string;
   course_id: string;
   is_math_subject: boolean;
-  rubric_json: string;
   pdf_file: FileList;
   answer_key_pdf: FileList;
 }
 
-const RUBRIC_PLACEHOLDER = JSON.stringify(
-  {
-    questions: [
-      {
-        question_id: "q1",
-        question_text: "Explain Newton's second law",
-        max_marks: 5,
-        logic_steps: [
-          { id: "step_1", description: "State F = ma", points: 1 },
-          { id: "step_2", description: "Define each variable", points: 2 },
-          { id: "step_3", description: "Provide a worked example", points: 2 },
-        ],
-      },
-    ],
-  },
-  null,
-  2
-);
+// ── Rubric builder types ──────────────────────────────────────────────────────
+
+interface LogicStep {
+  description: string;
+  points: number;
+}
+
+interface RubricQuestion {
+  question_text: string;
+  logic_steps: LogicStep[];
+}
+
+function makeQuestion(): RubricQuestion {
+  return { question_text: "", logic_steps: [{ description: "", points: 1 }] };
+}
+
+function serializeRubric(questions: RubricQuestion[]): string {
+  return JSON.stringify({
+    questions: questions.map((q, qi) => ({
+      question_id: `q${qi + 1}`,
+      question_text: q.question_text,
+      max_marks: q.logic_steps.reduce((sum, s) => sum + (Number(s.points) || 0), 0),
+      logic_steps: q.logic_steps.map((s, si) => ({
+        id: `step_${si + 1}`,
+        description: s.description,
+        points: Number(s.points) || 0,
+      })),
+    })),
+  });
+}
+
+// ── Rubric builder component ──────────────────────────────────────────────────
+
+function RubricBuilder({
+  questions,
+  onChange,
+}: {
+  questions: RubricQuestion[];
+  onChange: (q: RubricQuestion[]) => void;
+}) {
+  function updateQuestion(qi: number, patch: Partial<RubricQuestion>) {
+    const next = questions.map((q, i) => (i === qi ? { ...q, ...patch } : q));
+    onChange(next);
+  }
+
+  function removeQuestion(qi: number) {
+    onChange(questions.filter((_, i) => i !== qi));
+  }
+
+  function addStep(qi: number) {
+    const next = questions.map((q, i) =>
+      i === qi
+        ? { ...q, logic_steps: [...q.logic_steps, { description: "", points: 1 }] }
+        : q
+    );
+    onChange(next);
+  }
+
+  function updateStep(qi: number, si: number, patch: Partial<LogicStep>) {
+    const next = questions.map((q, i) =>
+      i === qi
+        ? {
+            ...q,
+            logic_steps: q.logic_steps.map((s, j) => (j === si ? { ...s, ...patch } : s)),
+          }
+        : q
+    );
+    onChange(next);
+  }
+
+  function removeStep(qi: number, si: number) {
+    const next = questions.map((q, i) =>
+      i === qi ? { ...q, logic_steps: q.logic_steps.filter((_, j) => j !== si) } : q
+    );
+    onChange(next);
+  }
+
+  return (
+    <div className="space-y-4">
+      {questions.map((q, qi) => {
+        const total = q.logic_steps.reduce((sum, s) => sum + (Number(s.points) || 0), 0);
+        return (
+          <div key={qi} className="border border-gray-200 rounded-lg overflow-hidden">
+            {/* Question header */}
+            <div className="flex items-center justify-between bg-gray-50 px-4 py-2.5 border-b border-gray-200">
+              <span className="text-sm font-semibold text-gray-700">Q{qi + 1}</span>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-gray-400">{total} pt{total !== 1 ? "s" : ""} total</span>
+                {questions.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => removeQuestion(qi)}
+                    className="text-xs text-red-500 hover:text-red-700"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="p-4 space-y-3">
+              {/* Question text */}
+              <input
+                type="text"
+                value={q.question_text}
+                onChange={(e) => updateQuestion(qi, { question_text: e.target.value })}
+                placeholder="Question text (e.g. Derive the escape velocity formula)"
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-900"
+              />
+
+              {/* Steps */}
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-gray-500">Grading steps</p>
+                {q.logic_steps.map((step, si) => (
+                  <div key={si} className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={step.description}
+                      onChange={(e) => updateStep(qi, si, { description: e.target.value })}
+                      placeholder={`Step ${si + 1} description`}
+                      className="flex-1 border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-gray-900"
+                    />
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.5}
+                      value={step.points}
+                      onChange={(e) => updateStep(qi, si, { points: parseFloat(e.target.value) || 0 })}
+                      className="w-20 border border-gray-300 rounded-md px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-1 focus:ring-gray-900"
+                      title="Points for this step"
+                    />
+                    <span className="text-xs text-gray-400 w-4">pt{step.points !== 1 ? "s" : ""}</span>
+                    {q.logic_steps.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeStep(qi, si)}
+                        className="text-gray-300 hover:text-red-500 text-lg leading-none"
+                        title="Remove step"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => addStep(qi)}
+                  className="text-xs text-gray-500 hover:text-gray-800 mt-1"
+                >
+                  + Add step
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+
+      <button
+        type="button"
+        onClick={() => onChange([...questions, makeQuestion()])}
+        className="w-full border border-dashed border-gray-300 rounded-lg py-2.5 text-sm text-gray-500 hover:border-gray-400 hover:text-gray-700 transition-colors"
+      >
+        + Add question
+      </button>
+    </div>
+  );
+}
+
+// ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function NewExam() {
   const { register, handleSubmit, formState: { errors } } = useForm<Fields>();
@@ -40,30 +190,45 @@ export default function NewExam() {
   const [searchParams] = useSearchParams();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [questions, setQuestions] = useState<RubricQuestion[]>([makeQuestion()]);
+  const [rubricError, setRubricError] = useState<string | null>(null);
 
   const { data: courses = [] } = useQuery<Course[]>({
     queryKey: ["courses"],
     queryFn: () => api.get("/courses/").then((r) => r.data),
   });
 
+  function validateRubric(): string | null {
+    for (let qi = 0; qi < questions.length; qi++) {
+      const q = questions[qi];
+      if (!q.question_text.trim()) return `Q${qi + 1}: question text is required`;
+      if (q.logic_steps.length === 0) return `Q${qi + 1}: add at least one grading step`;
+      for (let si = 0; si < q.logic_steps.length; si++) {
+        if (!q.logic_steps[si].description.trim())
+          return `Q${qi + 1} step ${si + 1}: description is required`;
+      }
+      const total = q.logic_steps.reduce((sum, s) => sum + (Number(s.points) || 0), 0);
+      if (total <= 0) return `Q${qi + 1}: total points must be greater than 0`;
+    }
+    return null;
+  }
+
   async function onSubmit(data: Fields) {
-    setLoading(true);
-    setError(null);
-    try {
-      // Validate rubric JSON before sending
-      JSON.parse(data.rubric_json);
-    } catch {
-      setError("Rubric JSON is not valid");
-      setLoading(false);
+    setRubricError(null);
+    const validationError = validateRubric();
+    if (validationError) {
+      setRubricError(validationError);
       return;
     }
 
+    setLoading(true);
+    setError(null);
     try {
       const form = new FormData();
       form.append("title", data.title);
       form.append("course_id", data.course_id);
       form.append("is_math_subject", String(data.is_math_subject ?? false));
-      form.append("rubric_json", data.rubric_json);
+      form.append("rubric_json", serializeRubric(questions));
       form.append("pdf_file", data.pdf_file[0]);
       if (data.answer_key_pdf?.[0]) {
         form.append("answer_key_pdf", data.answer_key_pdf[0]);
@@ -157,16 +322,9 @@ export default function NewExam() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Rubric <span className="font-normal text-gray-400">(JSON)</span>
-            </label>
-            <textarea
-              {...register("rubric_json", { required: true })}
-              rows={14}
-              defaultValue={RUBRIC_PLACEHOLDER}
-              className="w-full border border-gray-300 rounded-md px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-gray-900"
-            />
-            {errors.rubric_json && <p className="text-xs text-red-600 mt-1">Required</p>}
+            <label className="block text-sm font-medium text-gray-700 mb-2">Rubric</label>
+            <RubricBuilder questions={questions} onChange={setQuestions} />
+            {rubricError && <p className="text-xs text-red-600 mt-2">{rubricError}</p>}
           </div>
 
           {error && <p className="text-sm text-red-600">{error}</p>}
