@@ -10,6 +10,8 @@ interface QuestionScore {
   ai_score: number;
   max_score: number;
   status: string;
+  plagiarism_flagged: boolean;
+  plagiarism_similarity_score: number | null;
 }
 
 interface StudentResult {
@@ -208,11 +210,18 @@ function GradesTable({ data }: { data: ExamResults }) {
     new Set(data.student_results.flatMap((s) => s.questions.map((q) => q.question_id)))
   ).sort();
 
+  const anyPlagiarism = data.student_results.some((s) => s.questions.some((q) => q.plagiarism_flagged));
+
   return (
     <>
       {data.reviewed_regions < data.total_regions && (
         <div className="mb-4 bg-amber-50 border border-amber-200 rounded-md px-4 py-3 text-sm text-amber-800">
           {data.total_regions - data.reviewed_regions} region(s) not yet reviewed — AI estimate shown for those.
+        </div>
+      )}
+      {data.student_results.length > 0 && !anyPlagiarism && (
+        <div className="mb-4 bg-green-50 border border-green-200 rounded-md px-4 py-3 text-sm text-green-700">
+          No plagiarism detected.
         </div>
       )}
       <div className="bg-white border border-gray-200 rounded-lg overflow-x-auto">
@@ -262,6 +271,14 @@ function GradesTable({ data }: { data: ExamResults }) {
                           <span className={`text-xs px-1.5 py-0.5 rounded-full ${STATUS_BADGE[q.status] ?? STATUS_BADGE.pending}`}>
                             {q.status}
                           </span>
+                          {q.plagiarism_flagged && (
+                            <span
+                              className="text-xs px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 font-medium"
+                              title={q.plagiarism_similarity_score != null ? `${Math.round(q.plagiarism_similarity_score * 100)}% similar to another student` : "Plagiarism suspected"}
+                            >
+                              Plagiarism
+                            </span>
+                          )}
                         </div>
                       </td>
                     );
@@ -281,6 +298,33 @@ function GradesTable({ data }: { data: ExamResults }) {
       </div>
     </>
   );
+}
+
+// ── CSV export ────────────────────────────────────────────────────────────────
+
+function downloadCsv(data: ExamResults) {
+  const allQids = Array.from(
+    new Set(data.student_results.flatMap((s) => s.questions.map((q) => q.question_id)))
+  ).sort();
+
+  const header = ["student_id", ...allQids, "total", "max_total"].join(",");
+  const rows = data.student_results.map((s) => {
+    const byQid = Object.fromEntries(s.questions.map((q) => [q.question_id, q]));
+    const scores = allQids.map((qid) => {
+      const q = byQid[qid];
+      return q != null ? String(q.final_score ?? q.ai_score) : "";
+    });
+    return [s.student_identifier, ...scores, String(s.total_score), String(s.max_total)].join(",");
+  });
+
+  const csv = [header, ...rows].join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${data.exam_title.replace(/\s+/g, "_")}_grades.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -312,12 +356,20 @@ export default function ExamResults() {
               {data.reviewed_regions}/{data.total_regions} regions reviewed
             </p>
           </div>
-          <Link
-            to={`/review/${id}`}
-            className="text-sm text-gray-600 hover:text-gray-900 border border-gray-200 px-3 py-1.5 rounded-md hover:bg-gray-50"
-          >
-            ← Back to review queue
-          </Link>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => downloadCsv(data)}
+              className="text-sm text-gray-600 hover:text-gray-900 border border-gray-200 px-3 py-1.5 rounded-md hover:bg-gray-50"
+            >
+              Download CSV
+            </button>
+            <Link
+              to={`/review/${id}`}
+              className="text-sm text-gray-600 hover:text-gray-900 border border-gray-200 px-3 py-1.5 rounded-md hover:bg-gray-50"
+            >
+              ← Back to review queue
+            </Link>
+          </div>
         </div>
 
         {/* Tabs */}

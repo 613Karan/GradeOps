@@ -140,6 +140,9 @@ async def _classify_page(image_b64: str) -> dict:
         )
         return json.loads(_extract_json(resp.choices[0].message.content))
     except Exception as e:
+        err_str = str(e)
+        if "tokens per day" in err_str or "TPD" in err_str:
+            raise RuntimeError(f"Groq daily token quota exhausted: {e}") from e
         logger.warning("Cover page classification failed: %s", e)
         return {"is_cover": False, "roll_no": "", "name": "", "course": ""}
 
@@ -572,7 +575,7 @@ async def _run_ocr_and_grade_for_exam(exam_id: str, db: AsyncSession) -> None:
         select(AnswerKeyChunk).where(AnswerKeyChunk.exam_id == UUID(exam_id))
     )
     key_chunks = [
-        {"question_id": c.question_id, "chunk_text": c.chunk_text, "embedding": c.embedding}
+        {"question_id": c.question_id, "text": c.chunk_text, "embedding": c.embedding}
         for c in chunks_result.scalars().all()
     ]
     has_answer_key = len(key_chunks) > 0
@@ -610,10 +613,60 @@ async def _run_ocr_and_grade_for_exam(exam_id: str, db: AsyncSession) -> None:
             )
         await db.commit()
 
+    await _run_plagiarism_detection(exam_id, db)
+
     result = await db.execute(select(Exam).where(Exam.id == UUID(exam_id)))
     exam = result.scalar_one_or_none()
     if exam:
         exam.status = ExamStatus.GRADED
+    await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Plagiarism detection
+# ---------------------------------------------------------------------------
+
+async def _run_plagiarism_detection(exam_id: str, db: AsyncSession) -> None:
+    """Pairwise cosine similarity on embeddings per question across all students."""
+    from collections import defaultdict
+    from app.services.embeddings import cosine_similarity
+
+    THRESHOLD = 0.92
+
+    result = await db.execute(
+        select(AnswerRegion, GradeRecord)
+        .join(GradeRecord, GradeRecord.answer_region_id == AnswerRegion.id)
+        .where(AnswerRegion.exam_id == UUID(exam_id))
+    )
+    rows = result.all()
+
+    by_question: dict[str, list] = defaultdict(list)
+    for region, grade in rows:
+        if region.embedding and region.question_id != "unsplit":
+            by_question[region.question_id].append((region, grade))
+
+    for pairs in by_question.values():
+        if len(pairs) < 2:
+            continue
+        for i in range(len(pairs)):
+            for j in range(i + 1, len(pairs)):
+                region_a, grade_a = pairs[i]
+                region_b, grade_b = pairs[j]
+                sim = cosine_similarity(region_a.embedding, region_b.embedding)
+                if sim >= THRESHOLD:
+                    grade_a.plagiarism_flagged = True
+                    grade_b.plagiarism_flagged = True
+                    sim_rounded = round(sim, 4)
+                    if grade_a.plagiarism_similarity_score is None or sim_rounded > grade_a.plagiarism_similarity_score:
+                        grade_a.plagiarism_similarity_score = sim_rounded
+                    if grade_b.plagiarism_similarity_score is None or sim_rounded > grade_b.plagiarism_similarity_score:
+                        grade_b.plagiarism_similarity_score = sim_rounded
+                    logger.info(
+                        "Plagiarism flag: %s vs %s on %s (similarity=%.4f)",
+                        region_a.student_identifier, region_b.student_identifier,
+                        region_a.question_id, sim,
+                    )
+
     await db.commit()
 
 

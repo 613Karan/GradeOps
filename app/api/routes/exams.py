@@ -153,6 +153,8 @@ async def get_exam_results(
                 ai_score=grade.ai_score,
                 max_score=grade.max_score,
                 status=region.status.value,
+                plagiarism_flagged=grade.plagiarism_flagged or False,
+                plagiarism_similarity_score=grade.plagiarism_similarity_score,
             ))
             total_score += effective_score if effective_score is not None else grade.ai_score
             max_total += grade.max_score

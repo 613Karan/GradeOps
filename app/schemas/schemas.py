@@ -196,6 +196,8 @@ class QuestionScore(BaseModel):
     ai_score: float
     max_score: float
     status: str
+    plagiarism_flagged: bool = False
+    plagiarism_similarity_score: Optional[float] = None
 
 
 class StudentResult(BaseModel):

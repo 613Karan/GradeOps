@@ -66,6 +66,7 @@ export interface GradeRead {
   overall_justification: string | null;
   override_reason: string | null;
   plagiarism_flagged: boolean;
+  plagiarism_similarity_score: number | null;
 }
 
 export interface ReviewItem {
