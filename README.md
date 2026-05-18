@@ -337,6 +337,8 @@ Triggered by TA clicking "Start grading". For each `pending` or `flagged` region
 3. **Embedding** — BGE-small embeds the transcript; stored on `answer_region.embedding` (384-dimensional float array as JSON)
 4. **RAG retrieval** — cosine similarity against `AnswerKeyChunk` rows for this question; top-3 chunks injected into the grading prompt
 5. **Grading** — Groq text model evaluates each rubric `logic_step` individually, returning `verdict` + `awarded_points` + `justification` per step
+
+> **RAG is optional.** If no answer key PDF was uploaded, step 4 is skipped and the LLM grades solely against the rubric logic steps. Uploading an answer key gives the grading model reference material for each question, which improves scoring accuracy on open-ended and derivation-style answers.
 6. `GradeRecord` created; region status → `graded` (or `flagged` if OCR confidence < 0.65)
 7. DB committed after every region
 
