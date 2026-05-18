@@ -1,29 +1,11 @@
-version: "3.9"
-
-# ============================================================
-# GradeOps — Full open-source model stack
-#
-# GPU allocation:
-#   grading-llm   : needs a dedicated 80GB A100 (or 2x40GB)
-#   ocr-primary   : 7B model — shares a 40GB GPU with ocr-fallback
-#   ocr-fallback  : 7B model — shares same GPU
-#   router        : CPU only via Ollama
-#
-# Start order: postgres → mongo → redis → api → workers
-# ============================================================
-
 services:
-
-  # ----------------------------------------------------------
-  # Infrastructure
-  # ----------------------------------------------------------
 
   postgres:
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: gradeops
       POSTGRES_USER: gradeops
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: gradeops
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
@@ -34,218 +16,22 @@ services:
       timeout: 5s
       retries: 5
 
-  mongo:
-    image: mongo:7
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: gradeops
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
-    volumes:
-      - mongo_data:/data/db
-    ports:
-      - "27017:27017"
-
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-
-  # ----------------------------------------------------------
-  # LLM Router: SmolLM3-3B via Ollama (CPU)
-  # Model: HuggingFaceTB/SmolLM3-3B
-  # Role: classify answer regions as math / prose / mixed
-  # ----------------------------------------------------------
-
-  ollama-router:
-    image: ollama/ollama:latest
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    environment:
-      - OLLAMA_KEEP_ALIVE=24h
-    # Pull SmolLM3-3B on first start
-    entrypoint: >
-      /bin/sh -c "ollama serve &
-      sleep 5 &&
-      ollama pull smollm3:3b &&
-      wait"
-
-  # ----------------------------------------------------------
-  # OCR Primary: Qwen2.5-VL-7B-Instruct via vLLM
-  # Apache 2.0. Handles handwritten prose + math → LaTeX.
-  # ----------------------------------------------------------
-
-  ocr-primary:
-    image: vllm/vllm-openai:latest
-    command: >
-      --model Qwen/Qwen2.5-VL-7B-Instruct
-      --port 8001
-      --max-model-len 8192
-      --trust-remote-code
-      --dtype bfloat16
-    ports:
-      - "8001:8001"
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              device_ids: ["1"]
-              capabilities: [gpu]
-    volumes:
-      - hf_cache:/root/.cache/huggingface
-    environment:
-      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
-
-  # ----------------------------------------------------------
-  # OCR Fallback: OlmOCR-2 via vLLM
-  # allenai/olmOCR-7B-0225-preview, Apache 2.0
-  # Used when Qwen2.5-VL confidence < OCR_CONFIDENCE_MIN
-  # ----------------------------------------------------------
-
-  ocr-fallback:
-    image: vllm/vllm-openai:latest
-    command: >
-      --model allenai/olmOCR-7B-0225-preview
-      --port 8002
-      --max-model-len 8192
-      --trust-remote-code
-      --dtype bfloat16
-    ports:
-      - "8002:8002"
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              device_ids: ["1"]
-              capabilities: [gpu]
-    volumes:
-      - hf_cache:/root/.cache/huggingface
-    environment:
-      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
-
-  # ----------------------------------------------------------
-  # Grading LLM: DeepSeek-R1-Distill-Qwen-32B via vLLM
-  # MIT license. SOTA open-weight reasoning + JSON output.
-  # Requires a dedicated 80GB A100 (or tensor-parallel on 2x40GB).
-  # ----------------------------------------------------------
-
-  grading-llm:
-    image: vllm/vllm-openai:latest
-    command: >
-      --model deepseek-ai/DeepSeek-R1-Distill-Qwen-32B
-      --port 8003
-      --max-model-len 16384
-      --trust-remote-code
-      --dtype bfloat16
-      --tensor-parallel-size 1
-      --enable-reasoning
-      --reasoning-parser deepseek_r1
-      --guided-decoding-backend outlines
-    ports:
-      - "8003:8003"
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              device_ids: ["0"]
-              capabilities: [gpu]
-    volumes:
-      - hf_cache:/root/.cache/huggingface
-    environment:
-      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
-
-  # ----------------------------------------------------------
-  # BGE-M3 Embedding Service  (BAAI/bge-m3, Apache 2.0)
-  # Dense + sparse + multi-vector — used for RAG + plagiarism
-  # ----------------------------------------------------------
-
-  embed-service:
-    build:
-      context: ./services/embed_service
-      dockerfile: Dockerfile
-    ports:
-      - "8004:8004"
-    environment:
-      - MODEL_NAME=BAAI/bge-m3
-      - HF_TOKEN=${HF_TOKEN}
-    volumes:
-      - hf_cache:/root/.cache/huggingface
-    # Runs on CPU — BGE-M3 inference is fast enough for embedding batches
-
-  # ----------------------------------------------------------
-  # PaddleOCR PP-StructureV3 layout detection service
-  # Apache 2.0. Detects answer region bounding boxes per page.
-  # ----------------------------------------------------------
-
-  layout-service:
-    build:
-      context: ./services/layout_service
-      dockerfile: Dockerfile
-    ports:
-      - "8005:8005"
-
-  # ----------------------------------------------------------
-  # FastAPI Application
-  # ----------------------------------------------------------
-
   api:
     build:
       context: .
-      dockerfile: Dockerfile.api
+      dockerfile: Dockerfile.dev
     ports:
       - "8000:8000"
     env_file: .env
+    volumes:
+      - ./uploads:/app/uploads
+      - .:/app
+      - fastembed_cache:/root/.cache/fastembed
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-
-  # ----------------------------------------------------------
-  # Celery Workers (separate queues for independent scaling)
-  # ----------------------------------------------------------
-
-  worker-splitter:
-    build:
-      context: .
-      dockerfile: Dockerfile.api
-    env_file: .env
-    command: celery -A app.workers.tasks worker -Q splitter -c 4 --loglevel=info
-    depends_on:
-      - redis
-      - postgres
-
-  worker-ocr:
-    build:
-      context: .
-      dockerfile: Dockerfile.api
-    env_file: .env
-    command: celery -A app.workers.tasks worker -Q ocr -c 2 --loglevel=info
-    depends_on:
-      - redis
-      - ocr-primary
-
-  worker-grading:
-    build:
-      context: .
-      dockerfile: Dockerfile.api
-    env_file: .env
-    # Concurrency must match CELERY_GRADING_CONCURRENCY in config (default 3)
-    command: celery -A app.workers.tasks worker -Q grading -c 3 --loglevel=info
-    depends_on:
-      - redis
-      - grading-llm
-
 
 volumes:
   postgres_data:
-  mongo_data:
-  ollama_data:
-  hf_cache:
+  fastembed_cache:

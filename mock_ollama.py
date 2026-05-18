@@ -47,7 +47,7 @@ class ChatRequest(BaseModel):
     format: str = ""
 
 
-def _mock_classify(prompt: str) -> str:
+def _mock_classify(_prompt: str) -> str:
     return "mixed"
 
 
@@ -101,8 +101,15 @@ async def chat(req: ChatRequest):
 
     # Classify request type by model name
     if "vl" in req.model or has_images:
-        # Vision model — OCR or classify
-        if "reply with exactly one word" in prompt.lower():
+        # Vision model — cover detection, question identification, content classification, or OCR
+        if "cover" in prompt.lower() or "roll no" in prompt.lower():
+            # Cover page detection — mock can't see images, always not a cover
+            content = json.dumps({"is_cover": False, "roll_no": "", "name": "", "course": ""})
+        elif "question_number" in prompt.lower() or "new question" in prompt.lower():
+            # Question identification — mock can't see images, always treat as continuation
+            # so all answer pages accumulate under auto-assigned q1 for local dev
+            content = json.dumps({"question_number": None})
+        elif "reply with exactly one word" in prompt.lower():
             content = _mock_classify(prompt)
         else:
             content = _mock_ocr(prompt)

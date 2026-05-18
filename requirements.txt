@@ -17,6 +17,19 @@ asyncpg>=0.30.0
 # ── HTTP client ───────────────────────────────────────────────────
 httpx>=0.27.0
 
+# ── LLM (Groq cloud inference — free tier) ────────────────────────
+groq>=0.9.0
+
+# ── Math OCR (Gemini Flash — free tier, aistudio.google.com) ──────
+google-genai>=1.0.0
+
+# ── Agentic pipeline orchestration ────────────────────────────────
+langgraph>=0.2.0
+langchain-core>=0.3.0
+
+# ── Embeddings (BGE-small via ONNX — CPU, no GPU needed) ──────────
+fastembed==0.4.2
+
 # ── File I/O ─────────────────────────────────────────────────────
 aiofiles>=23.2.1
 

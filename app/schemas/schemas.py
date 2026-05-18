@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 
 # ---------------------------------------------------------------------------
@@ -103,6 +103,7 @@ class ExamRead(BaseModel):
     course_id: UUID
     status: str
     file_path: Optional[str]
+    is_math_subject: bool
     page_count: Optional[int]
     student_count: Optional[int]
     rubric: Optional[dict]
@@ -133,6 +134,23 @@ class AnswerRegionRead(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class RegionSplitRequest(BaseModel):
+    split_points: list[int] = Field(min_length=1, description="Y-pixel offsets within the crop image")
+    question_ids: list[str] = Field(
+        description="Label for each resulting band (len must equal len(split_points)+1). Empty string = discard that band."
+    )
+
+    @model_validator(mode="after")
+    def _check_lengths(self):
+        expected = len(self.split_points) + 1
+        if len(self.question_ids) != expected:
+            raise ValueError(
+                f"question_ids must have exactly {expected} entries "
+                f"(one per band), got {len(self.question_ids)}"
+            )
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -170,3 +188,27 @@ class ReviewDashboardItem(BaseModel):
     transcript_text: Optional[str] = None
     overall_justification: Optional[str] = None
     step_results: list[dict] = []
+
+
+class QuestionScore(BaseModel):
+    question_id: str
+    final_score: Optional[float]
+    ai_score: float
+    max_score: float
+    status: str
+
+
+class StudentResult(BaseModel):
+    student_identifier: str
+    questions: list[QuestionScore]
+    total_score: float
+    max_total: float
+    pending_count: int
+
+
+class ExamResults(BaseModel):
+    exam_id: str
+    exam_title: str
+    student_results: list[StudentResult]
+    total_regions: int
+    reviewed_regions: int

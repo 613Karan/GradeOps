@@ -113,6 +113,10 @@ class Exam(Base):
 
     # Local path or Cloudinary URL to original PDF
     file_path = Column(String(500))
+    # Local path to instructor-uploaded answer key PDF
+    answer_key_path = Column(String(500))
+    # True → math-heavy subject; pipeline routes OCR to Gemini Flash instead of Groq
+    is_math_subject = Column(Boolean, default=False, nullable=False)
     page_count = Column(Integer)
     student_count = Column(Integer)
 
@@ -148,6 +152,9 @@ class AnswerRegion(Base):
     transcript_text = Column(Text)
     transcript_confidence = Column(Float)
 
+    # BGE-M3 embedding of transcript (populated after OCR)
+    embedding = Column(JSON)
+
     created_at = Column(DateTime(timezone=True), default=_utcnow)
 
     exam = relationship("Exam", back_populates="answer_regions")
@@ -180,6 +187,18 @@ class GradeRecord(Base):
 
     answer_region = relationship("AnswerRegion", back_populates="grade_record")
     reviewed_by_user = relationship("User", back_populates="grade_overrides")
+
+
+class AnswerKeyChunk(Base):
+    """One embedded chunk from the instructor-uploaded answer key PDF."""
+    __tablename__ = "answer_key_chunks"
+
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    exam_id = Column(Uuid(as_uuid=True), ForeignKey("exams.id"), nullable=False, index=True)
+    question_id = Column(String(50), nullable=False)  # "q1", "q2", or "general"
+    chunk_text = Column(Text, nullable=False)
+    embedding = Column(JSON)  # list[float] from BGE-M3
+    created_at = Column(DateTime(timezone=True), default=_utcnow)
 
 
 class AuditLog(Base):

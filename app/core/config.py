@@ -13,11 +13,14 @@ class Settings(BaseSettings):
     # PostgreSQL
     DATABASE_URL: str = "postgresql+psycopg2://gradeops:gradeops@localhost:5432/gradeops"
 
-    # Ollama (all models served locally)
-    OLLAMA_BASE_URL: str = "http://localhost:11434"
-    OLLAMA_ROUTER_MODEL: str = "qwen2.5:0.5b"
-    OLLAMA_OCR_MODEL: str = "moondream"
-    OLLAMA_GRADING_MODEL: str = "qwen2.5:0.5b"
+    # Groq (free cloud inference — sign up at console.groq.com)
+    GROQ_API_KEY: str = ""
+    GROQ_VISION_MODEL: str = "meta-llama/llama-4-scout-17b-16e-instruct"
+    GROQ_GRADING_MODEL: str = "llama-3.3-70b-versatile"
+
+    # Gemini Flash (free math OCR — sign up at aistudio.google.com)
+    GEMINI_API_KEY: str = ""
+    GEMINI_VISION_MODEL: str = "gemini-2.5-flash"
 
     # File storage
     UPLOAD_DIR: str = "./uploads"
