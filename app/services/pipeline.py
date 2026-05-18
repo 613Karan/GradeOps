@@ -2,24 +2,15 @@
 Async grading pipeline — called via FastAPI BackgroundTasks.
 
 Three stages:
-  1. _split_pages               — PDF → cropped region PNGs (PyMuPDF + OpenCV)
-                                  + _process_answer_key (if answer key PDF uploaded)
-  2+3. _run_ocr_and_grade_for_exam — LangGraph parallel chains
-                                  Each region runs its own chain: OCR → RAG → grade
-                                  All chains execute concurrently; semaphores cap
-                                  in-flight API calls within free-tier rate limits.
+  1. _split_pages          — PDF → per-student stacked PNGs (PyMuPDF + OpenCV)
+                             + _process_answer_key (if answer key PDF uploaded)
+  2. run_ocr_and_grade     — sequential loop over pending regions:
+                             OCR (Groq vision or Gemini Flash) → RAG retrieval
+                             → grading (Groq text) → DB commit per region
+  3. _run_plagiarism_check — pairwise cosine similarity on embeddings per question
 
-LangGraph graph structure:
-  START → fan_out_regions (Send × N) → process_region_node → END
-                                           ↑ one node per region, all parallel
-
-Semaphore limits (free tier):
-  - Groq vision  (OCR prose): 5 concurrent  → ~30 RPM
-  - Gemini Flash (OCR math):  3 concurrent  → ~15 RPM
-  - Groq text    (grading):  10 concurrent  → ~30 RPM
-
-DB writes always happen sequentially after the graph completes,
-since AsyncSession is not safe for concurrent access.
+Sequential processing is intentional: it respects free-tier rate limits and
+saves partial progress to the DB after every region.
 """
 import asyncio
 import base64

@@ -31,8 +31,11 @@ async def get_review_queue(
         select(AnswerRegion, GradeRecord)
         .join(GradeRecord, GradeRecord.answer_region_id == AnswerRegion.id)
         .where(
-            AnswerRegion.exam_id == exam_id,
-            AnswerRegion.status.in_([RegionStatus.GRADED, RegionStatus.FLAGGED]),
+            AnswerRegion.exam_id == UUID(exam_id),
+            AnswerRegion.status.in_([
+                RegionStatus.GRADED, RegionStatus.FLAGGED,
+                RegionStatus.APPROVED, RegionStatus.OVERRIDDEN,
+            ]),
         )
         .offset(offset)
         .limit(page_size)

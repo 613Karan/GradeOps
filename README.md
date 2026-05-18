@@ -96,103 +96,154 @@ Both Groq and Gemini are used on their **free tiers** — no billing required.
 
 ## Prerequisites
 
-- **Docker Desktop** (includes Docker Compose) — for the backend + database
+- **Docker Desktop** — includes Docker Compose; runs the backend API and PostgreSQL database
+  - Mac/Windows: [docs.docker.com/get-docker](https://docs.docker.com/get-docker/)
+  - After installing, open Docker Desktop and wait for the engine to start (whale icon in menubar)
 - **Node.js 18+** — for the frontend dev server
-- **Groq API key** — free at [console.groq.com](https://console.groq.com)
-- **Gemini API key** — free at [aistudio.google.com](https://aistudio.google.com)
+  - Check: `node --version` (must be ≥ 18)
+  - Install: [nodejs.org](https://nodejs.org) or `brew install node`
+- **Groq API key** — free, no credit card
+- **Gemini API key** — free, no credit card
+
+---
+
+## Getting API Keys
+
+Both keys are free and take about two minutes each.
+
+### Groq (used for OCR and grading)
+
+1. Go to [console.groq.com](https://console.groq.com) and sign up / log in
+2. Click **API Keys** in the left sidebar
+3. Click **Create API Key**, give it any name, copy the key
+4. It starts with `gsk_...`
+
+### Google Gemini (used for math OCR)
+
+1. Go to [aistudio.google.com](https://aistudio.google.com) and sign in with a Google account
+2. Click **Get API key** (top left) → **Create API key in new project**
+3. Copy the key — it starts with `AIza...`
+
+> Both free tiers have daily limits that are enough for a full demo run. No billing setup or credit card is ever required.
 
 ---
 
 ## Quick Start
 
-### 1. Clone and configure
+### 1. Clone the repo
 
 ```bash
 git clone <repo-url>
 cd gradeops
-
-cp .env.example .env
-# Edit .env — fill in GROQ_API_KEY and GEMINI_API_KEY
 ```
 
-### 2. Start the backend
+### 2. Configure environment variables
+
+```bash
+cp .env.example .env
+```
+
+Open `.env` in any text editor and fill in the two API keys you just created:
+
+```env
+GROQ_API_KEY=gsk_...        ← paste your Groq key here
+GEMINI_API_KEY=AIza...      ← paste your Gemini key here
+```
+
+Everything else in `.env` works as-is for local development — do not change `DATABASE_URL`.
+
+### 3. Start the backend
 
 ```bash
 docker compose up -d
 ```
 
-This starts:
+This pulls the images (first time only) and starts:
 - `postgres` — PostgreSQL 16 on port 5432
-- `api` — FastAPI on port 8000 (hot-reload enabled via `Dockerfile.dev`)
+- `api` — FastAPI on port 8000 (with hot-reload)
 
-First run downloads the fastembed model (~130 MB) to a named Docker volume — takes ~60 seconds once, then cached permanently.
+**First run note:** On startup, the API container downloads the fastembed embedding model (~130 MB) to a named Docker volume. This happens once and is cached permanently. It takes roughly 60 seconds — the API will return 503 until it finishes. Watch progress with:
 
-Watch logs:
 ```bash
 docker compose logs api -f
 ```
 
-Health check:
+Wait until you see `Application startup complete` before proceeding.
+
+Health check (should return `{"status":"ok"}`):
 ```bash
 curl http://localhost:8000/health
 ```
 
-### 3. Run database migrations
+### 4. Run database migrations
 
 ```bash
 docker exec gradeops-api-1 alembic upgrade head
 ```
 
-### 4. Start the frontend
+If the container name differs on your machine, find it with `docker ps` and substitute accordingly.
+
+### 5. Start the frontend
+
+In a separate terminal:
 
 ```bash
 cd frontend
 npm install
 npm run dev
-# → http://localhost:5173
 ```
 
-### 5. Register users
+The app is now running at **http://localhost:5173**
 
-Open `http://localhost:5173/register` and create:
-- An **instructor** account (uploads exams, views results)
-- A **TA** account (split review, grade approval)
+### 6. Create accounts
 
-Or via API:
+Open [http://localhost:5173/register](http://localhost:5173/register) in your browser and create two accounts:
+
+| Role | What they do |
+|---|---|
+| **instructor** | Creates courses, uploads exams, views results |
+| **ta** | Reviews AI splits, approves or overrides grades |
+
+You need both roles to complete a full end-to-end run. Use different email addresses (e.g. `prof@demo.com` and `ta@demo.com`). Passwords can be anything.
+
+Alternatively, create them via the API directly (no browser needed):
+
 ```bash
 curl -X POST http://localhost:8000/api/v1/auth/register \
   -H "Content-Type: application/json" \
-  -d '{"email":"prof@uni.edu","full_name":"Professor","password":"pass1234","role":"instructor"}'
+  -d '{"email":"prof@demo.com","full_name":"Professor","password":"pass1234","role":"instructor"}'
 
 curl -X POST http://localhost:8000/api/v1/auth/register \
   -H "Content-Type: application/json" \
-  -d '{"email":"ta@uni.edu","full_name":"Teaching Assistant","password":"pass1234","role":"ta"}'
+  -d '{"email":"ta@demo.com","full_name":"Teaching Assistant","password":"pass1234","role":"ta"}'
 ```
+
+### 7. Run a demo
+
+1. Log in as the **instructor** → create a course → upload an exam PDF with a rubric
+2. Wait for status to reach **Split done** (pipeline auto-runs after upload)
+3. Log in as the **TA** → open the exam → click **Review splits** → draw cut lines, label each band (`q1`, `q2`, …) → save
+4. Back on the exam page, click **Start grading** — pipeline runs OCR + AI grading
+5. When status reaches **Review**, open the **Review queue** — approve or override each grade
+6. Open **Results** to see final scores, class statistics, plagiarism flags, and export CSV
+
+Interactive API docs (Swagger UI) are available at [http://localhost:8000/docs](http://localhost:8000/docs).
 
 ---
 
 ## Environment Variables
 
-Create a `.env` file at the repo root (copy from `.env.example`):
+Copy `.env.example` to `.env` and fill in the two API keys. All other values work as-is for local development.
 
-```env
-# Database (matches docker-compose.yml)
-DATABASE_URL=postgresql+asyncpg://gradeops:gradeops@postgres:5432/gradeops
+| Variable | Description | Required |
+|---|---|---|
+| `SECRET_KEY` | JWT signing key — any random string | yes |
+| `DATABASE_URL` | PostgreSQL connection string — matches `docker-compose.yml` | yes (do not change) |
+| `GROQ_API_KEY` | Groq API key (`gsk_...`) | yes |
+| `GEMINI_API_KEY` | Google Gemini API key (`AIza...`) | yes |
+| `UPLOAD_DIR` | Where PDFs and crops are stored inside the container | yes (leave as `./uploads`) |
 
-# JWT
-SECRET_KEY=change-this-in-production
-
-# Groq — free at console.groq.com
-GROQ_API_KEY=gsk_...
-
-# Gemini — free at aistudio.google.com
-GEMINI_API_KEY=AIza...
-
-# Local file storage
-UPLOAD_DIR=./uploads
-```
-
-> **Note:** `get_settings()` uses `@lru_cache`. After editing `.env`, run `docker compose up -d --force-recreate api` — a plain `restart` will not re-read the file.
+> **Note:** `get_settings()` uses `@lru_cache`. After editing `.env`, run `docker compose up -d --force-recreate api` to reload — a plain `docker compose restart` will not re-read the env file.
 
 ---
 
