@@ -9,7 +9,6 @@ export function useAuth() {
     setLoading(true);
     setError(null);
     try {
-      // OAuth2PasswordRequestForm — field is named "username" but backend looks it up as email
       const form = new URLSearchParams({ username: email, password });
       const { data } = await api.post("/auth/token", form, {
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
