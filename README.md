@@ -530,4 +530,4 @@ The original spec proposed: Python + PyTorch + Hugging Face (Nougat/Qwen-VL for 
 | Gemini | `gemini-2.5-flash` (math OCR) | 1,500 requests | Midnight Pacific |
 | fastembed | `BAAI/bge-small-en-v1.5` | Unlimited (local) | — |
 
-Both Groq and Gemini free tiers require no credit card. On free accounts the daily cap is the only constraint — there is no financial risk from an exposed key.
+Both Groq and Gemini free tiers require no credit card. On free accounts the daily cap is the only constraint — there is no financial risk from  exposed key.
