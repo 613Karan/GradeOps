@@ -2,7 +2,7 @@
 
 A Human-in-the-Loop (HITL) exam grading platform for universities. Instructors upload bulk handwritten exam scans; an AI pipeline performs OCR, grades each answer against a granular rubric, and flags potential plagiarism. Teaching Assistants review, approve, or override every AI decision through a purpose-built dashboard before results are finalised.
 
----
+--
 
 ## Table of Contents
 
@@ -22,7 +22,7 @@ A Human-in-the-Loop (HITL) exam grading platform for universities. Instructors u
 - [Known Limitations](#known-limitations)
 - [Free-Tier API Limits](#free-tier-api-limits)
 
----
+--
 
 ## How It Works
 
@@ -34,7 +34,7 @@ A Human-in-the-Loop (HITL) exam grading platform for universities. Instructors u
 6. **TA approves or overrides** each grade via a keyboard-shortcut-driven review queue
 7. **Results page** shows final scores per student per question, class statistics, plagiarism flags, and a CSV export
 
----
+--
 
 ## Tech Stack
 
@@ -55,7 +55,7 @@ A Human-in-the-Loop (HITL) exam grading platform for universities. Instructors u
 
 Both Groq and Gemini are used on their **free tiers** — no billing required.
 
----
+--
 
 ## Architecture
 
@@ -92,7 +92,7 @@ Both Groq and Gemini are used on their **free tiers** — no billing required.
 └─────────────────────┘
 ```
 
----
+--
 
 ## Prerequisites
 
@@ -105,7 +105,7 @@ Both Groq and Gemini are used on their **free tiers** — no billing required.
 - **Groq API key** — free, no credit card
 - **Gemini API key** — free, no credit card
 
----
+--
 
 ## Getting API Keys
 
@@ -126,7 +126,7 @@ Both keys are free and take about two minutes each.
 
 > Both free tiers have daily limits that are enough for a full demo run. No billing setup or credit card is ever required.
 
----
+--
 
 ## Quick Start
 
