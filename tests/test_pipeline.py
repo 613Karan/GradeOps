@@ -1,12 +1,10 @@
 """
-Tests for app/services/pipeline.py (replaces test_workers.py).
-All Ollama HTTP calls are mocked with httpx — no running services needed.
+Tests for app/services/pipeline.py
+All external API calls (Groq, Gemini) are mocked — no running services needed.
 """
 import json
-import os
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch, mock_open
-import httpx
+from unittest.mock import AsyncMock, MagicMock, patch
 
 
 MOCK_RUBRIC = {
@@ -42,6 +40,19 @@ MOCK_GRADING_RESULT = {
 }
 
 
+def _groq_response(content: str):
+    resp = MagicMock()
+    resp.choices = [MagicMock()]
+    resp.choices[0].message.content = content
+    return resp
+
+
+def _mock_groq(content: str):
+    client = MagicMock()
+    client.chat.completions.create = AsyncMock(return_value=_groq_response(content))
+    return client
+
+
 # ---------------------------------------------------------------------------
 # _classify_content
 # ---------------------------------------------------------------------------
@@ -53,17 +64,7 @@ async def test_classify_math(tmp_path):
     img_file = tmp_path / "img.png"
     img_file.write_bytes(b"fakepng")
 
-    mock_response = MagicMock()
-    mock_response.raise_for_status = MagicMock()
-    mock_response.json = MagicMock(return_value={"message": {"content": "math"}})
-
-    with patch("httpx.AsyncClient") as mock_client_cls:
-        mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client_cls.return_value = mock_client
-
+    with patch("app.services.pipeline._get_groq", return_value=_mock_groq("math")):
         result = await _classify_content(str(img_file))
 
     assert result == "math"
@@ -76,13 +77,10 @@ async def test_classify_defaults_to_mixed_on_error(tmp_path):
     img_file = tmp_path / "img.png"
     img_file.write_bytes(b"fakepng")
 
-    with patch("httpx.AsyncClient") as mock_client_cls:
-        mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client.post = AsyncMock(side_effect=httpx.ConnectError("connection refused"))
-        mock_client_cls.return_value = mock_client
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(side_effect=Exception("connection refused"))
 
+    with patch("app.services.pipeline._get_groq", return_value=mock_client):
         result = await _classify_content(str(img_file))
 
     assert result == "mixed"
@@ -100,20 +98,8 @@ async def test_run_ocr_prose(tmp_path):
     img_file.write_bytes(b"fakepng")
 
     transcript_text = "Entropy is a measure of disorder in a thermodynamic system."
-    mock_response = MagicMock()
-    mock_response.raise_for_status = MagicMock()
-    mock_response.json = MagicMock(return_value={
-        "message": {"content": transcript_text},
-        "done": True,
-    })
 
-    with patch("httpx.AsyncClient") as mock_client_cls:
-        mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client_cls.return_value = mock_client
-
+    with patch("app.services.pipeline._get_groq", return_value=_mock_groq(transcript_text)):
         transcript, confidence = await _run_ocr(str(img_file), "prose")
 
     assert transcript == transcript_text
@@ -127,13 +113,14 @@ async def test_run_ocr_returns_empty_on_failure(tmp_path):
     img_file = tmp_path / "img.png"
     img_file.write_bytes(b"fakepng")
 
-    with patch("httpx.AsyncClient") as mock_client_cls:
-        mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client.post = AsyncMock(side_effect=httpx.ConnectError("service down"))
-        mock_client_cls.return_value = mock_client
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(side_effect=Exception("service down"))
 
+    mock_gemini = MagicMock()
+    mock_gemini.models.generate_content = MagicMock(side_effect=Exception("service down"))
+
+    with patch("app.services.pipeline._get_groq", return_value=mock_client), \
+         patch("app.services.pipeline._get_gemini", return_value=mock_gemini):
         transcript, confidence = await _run_ocr(str(img_file), "math")
 
     assert transcript == ""
@@ -148,24 +135,12 @@ async def test_run_ocr_returns_empty_on_failure(tmp_path):
 async def test_grading_parses_json():
     from app.services.pipeline import _run_grading
 
-    mock_response = MagicMock()
-    mock_response.raise_for_status = MagicMock()
-    mock_response.json = MagicMock(return_value={
-        "message": {"content": json.dumps(MOCK_GRADING_RESULT)},
-        "done": True,
-    })
-
-    with patch("httpx.AsyncClient") as mock_client_cls:
-        mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client_cls.return_value = mock_client
-
+    with patch("app.services.pipeline._get_groq", return_value=_mock_groq(json.dumps(MOCK_GRADING_RESULT))):
         result = await _run_grading(
             transcript="The rate constant k = Ae^(-Ea/RT)",
             rubric=MOCK_RUBRIC,
             question_id="Q1",
+            answer_key_context=[],
         )
 
     assert result["total_awarded"] == 3.5
@@ -176,46 +151,25 @@ async def test_grading_parses_json():
 
 @pytest.mark.asyncio
 async def test_grading_strips_think_tags():
-    """<think>...</think> blocks must be stripped before JSON parsing."""
     from app.services.pipeline import _run_grading
 
-    content_with_think = (
-        "<think>Let me analyse each step carefully...</think>"
-        + json.dumps(MOCK_GRADING_RESULT)
-    )
+    content_with_think = "<think>Let me analyse each step carefully...</think>" + json.dumps(MOCK_GRADING_RESULT)
 
-    mock_response = MagicMock()
-    mock_response.raise_for_status = MagicMock()
-    mock_response.json = MagicMock(return_value={
-        "message": {"content": content_with_think},
-        "done": True,
-    })
-
-    with patch("httpx.AsyncClient") as mock_client_cls:
-        mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client_cls.return_value = mock_client
-
-        result = await _run_grading("transcript", MOCK_RUBRIC, "Q1")
+    with patch("app.services.pipeline._get_groq", return_value=_mock_groq(content_with_think)):
+        result = await _run_grading("transcript", MOCK_RUBRIC, "Q1", answer_key_context=[])
 
     assert result["total_awarded"] == 3.5
 
 
 @pytest.mark.asyncio
 async def test_grading_zero_fallback_on_failure():
-    """On total failure, must return zero scores so the pipeline doesn't crash."""
     from app.services.pipeline import _run_grading
 
-    with patch("httpx.AsyncClient") as mock_client_cls:
-        mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client.post = AsyncMock(side_effect=Exception("LLM service down"))
-        mock_client_cls.return_value = mock_client
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(side_effect=Exception("LLM service down"))
 
-        result = await _run_grading("transcript", MOCK_RUBRIC, "Q1")
+    with patch("app.services.pipeline._get_groq", return_value=mock_client):
+        result = await _run_grading("transcript", MOCK_RUBRIC, "Q1", answer_key_context=[])
 
     assert result["total_awarded"] == 0.0
     assert len(result["step_results"]) == 3

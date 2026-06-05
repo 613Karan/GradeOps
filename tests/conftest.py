@@ -66,8 +66,8 @@ def mock_pipeline(monkeypatch):
 @pytest.fixture(autouse=True)
 def mock_save_pdf(monkeypatch):
     """Replace _save_pdf with a stub returning a fake path — no disk I/O."""
-    async def _fake_save(file, exam_id):
-        return f"/tmp/fake_uploads/{exam_id}/original.pdf"
+    async def _fake_save(file, exam_id, filename="original.pdf"):
+        return f"/tmp/fake_uploads/{exam_id}/{filename}"
 
     monkeypatch.setattr("app.api.routes.exams._save_pdf", _fake_save)
 
