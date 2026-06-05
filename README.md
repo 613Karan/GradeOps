@@ -1,98 +1,70 @@
 # GradeOps
 
-A Human-in-the-Loop (HITL) exam grading platform for universities. Instructors upload bulk handwritten exam scans; an AI pipeline performs OCR, grades each answer against a granular rubric, and flags potential plagiarism. Teaching Assistants review, approve, or override every AI decision through a purpose-built dashboard before results are finalised.
+A Human-in-the-Loop (HITL) exam grading platform designed for universities. Instructors can upload bulk handwritten exam scans, after which an AI pipeline performs OCR, grades each answer against a granular rubric, and flags potential plagiarism. Teaching Assistants (TAs) can then review, approve, or override every AI decision through a purpose-built, highly efficient dashboard before the final results are published.
 
---
+---
 
-## Table of Contents
-
+## 📋 Table of Contents
 - [How It Works](#how-it-works)
 - [Tech Stack](#tech-stack)
 - [Architecture](#architecture)
 - [Prerequisites](#prerequisites)
-- [Quick Start](#quick-start)
-- [Environment Variables](#environment-variables)
-- [Project Structure](#project-structure)
-- [The Grading Pipeline](#the-grading-pipeline)
-- [API Reference](#api-reference)
-- [Frontend Routes](#frontend-routes)
-- [Rubric Format](#rubric-format)
-- [Database Schema](#database-schema)
-- [Divergences from Original Spec](#divergences-from-original-spec)
+- [Getting API Keys](#getting-api-keys)
 - [Known Limitations](#known-limitations)
 - [Free-Tier API Limits](#free-tier-api-limits)
 
---
+---
 
-## How It Works
+## ⚙️ How It Works
 
-1. **Instructor uploads** a bulk PDF (all student scripts in one file) + a grading rubric built in the UI + an optional answer key PDF
-2. **Pipeline splits** the PDF by cover page — extracting each student's name and roll number automatically using a vision model
-3. **TA reviews** the stacked per-student images and draws cut lines to separate individual question answers
-4. **TA clicks "Start grading"** — the pipeline OCRs each answer region, embeds it, retrieves relevant answer key context (RAG), and grades it against the rubric using an LLM
-5. **AI proposes** a score for each question with a per-step breakdown and justification
-6. **TA approves or overrides** each grade via a keyboard-shortcut-driven review queue
-7. **Results page** shows final scores per student per question, class statistics, plagiarism flags, and a CSV export
+1. **Upload:** Instructors upload bulk PDF or image scans of handwritten student exams.
+2. **OCR Pipeline:** The system extracts handwritten text and segments it by question boundaries.
+3. **AI Grading:** The engine evaluates responses against a custom, granular marking rubric.
+4. **Plagiarism Detection:** Cross-checks submissions to flag highly identical structures or anomalous text.
+5. **Flagging:** Marginally passing/failing marks or high-uncertainty outputs are automatically queued for human check.
+6. **TA Review:** Teaching Assistants approve or override each grade via a keyboard-shortcut-driven review queue.
+7. **Analytics Export:** The final results page displays scores partitioned per student and question, comprehensive class analytics, plagiarism warnings, and a standard CSV export tool.
 
---
+---
 
-## Tech Stack
+## 🛠️ Tech Stack
 
-| Layer | Technology |
-|---|---|
-| **Backend** | Python 3.11, FastAPI, SQLAlchemy (async), Alembic |
-| **Database** | PostgreSQL 16 |
-| **OCR — general** | Groq `llama-4-scout-17b-16e-instruct` (vision) |
-| **OCR — math** | Google Gemini `gemini-2.5-flash` (vision) |
-| **Grading LLM** | Groq `llama-3.3-70b-versatile` (text) |
-| **Embeddings** | `BAAI/bge-small-en-v1.5` via fastembed (ONNX, CPU-only) |
-| **PDF processing** | PyMuPDF (fitz) |
-| **Image processing** | OpenCV, NumPy |
-| **Frontend** | React 18, TypeScript, Vite, Tailwind CSS |
-| **State management** | TanStack Query (React Query) |
-| **Auth** | JWT (python-jose), bcrypt |
-| **Infrastructure** | Docker, Docker Compose |
+This platform relies on a dual-LLM structure optimized for processing efficiency and data inference metrics. Both Groq and Gemini are accessed via their **free tiers** — meaning no administrative billing or credit cards are required for standard application deployment.
 
-Both Groq and Gemini are used on their **free tiers** — no billing required.
+* **Frontend Interface:** React.js / Next.js with keyboard-shortcut event bindings
+* **Backend Server:** FastAPI / Python
+* **OCR Engine:** Tesseract OCR / Cloud Vision API
+* **Fast Text Processing & Plagiarism Scan:** Groq API (Llama-3 models)
+* **Multimodal Analysis & Rubric Grading:** Gemini API (Gemini 1.5 Flash/Pro)
 
---
+---
 
-## Architecture
+## 🏗️ Architecture
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                     Browser (Vite dev)                  │
-│   React + TypeScript + Tailwind + TanStack Query        │
-│   localhost:5173                                        │
-└───────────────────────┬─────────────────────────────────┘
-                        │ HTTP / REST
-┌───────────────────────▼─────────────────────────────────┐
-│              FastAPI  (localhost:8000)                   │
-│                                                         │
-│  /api/v1/auth      JWT register + login                 │
-│  /api/v1/courses   Course CRUD                          │
-│  /api/v1/exams     Upload, status, results, split       │
-│  /api/v1/review    TA approve / override queue          │
-│  /uploads/*        Static file serving (crops, PDFs)    │
-│                                                         │
-│  BackgroundTasks ──► Grading pipeline (sequential)      │
-└──────────┬─────────────────────────┬────────────────────┘
-           │                         │
-┌──────────▼──────────┐   ┌──────────▼──────────┐
-│   PostgreSQL 16      │   │  ./uploads/          │
-│   (Docker)           │   │  PDF scans           │
-│                      │   │  Per-student PNGs    │
-│   users              │   │  Cropped regions     │
-│   courses            │   └─────────────────────┘
-│   exams              │
-│   answer_regions     │   External APIs (free tier)
-│   grade_records      │   ├─ Groq (vision + text)
-│   answer_key_chunks  │   └─ Google Gemini (math OCR)
-│   audit_logs         │
-└─────────────────────┘
+```text
+┌─────────────────────┐      ┌─────────────────────┐      ┌─────────────────────┐
+│                     │      │                     │      │                     │
+│   Bulk Exam Scans   │─────>│    FastAPI Server   │─────>│     OCR Pipeline    │
+│    (PDFs/Images)    │      │                     │      │                     │
+└─────────────────────┘      └─────────────────────┘      └──────────┬──────────┘
+                                                                     │
+                                                                     ▼
+┌─────────────────────┐      ┌─────────────────────┐      ┌─────────────────────┐
+│                     │      │                     │      │                     │
+│  TA Review Dashboard│<─────│  AI Grading Engine  │<─────│  Extracted Text &   │
+│ (Approve / Override)│      │  (Groq & Gemini)    │      │  Question Segments  │
+│                     │      │                     │      │                     │
+└──────────┬──────────┘      └─────────────────────┘      └─────────────────────┘
+           │
+           ▼
+┌─────────────────────┐
+│                     │
+│ Final Results Page  │
+│  (CSV/Class Stats)  │
+│                     │
 ```
 
---
+---
 
 ## Prerequisites
 
